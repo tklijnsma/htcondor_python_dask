@@ -1,5 +1,5 @@
 import sys, logging, re, pprint, math
-sys.path.append('/usr/lib64/python2.7/site-packages')
+# sys.path.append('/usr/lib64/python2.7/site-packages')
 
 
 # ______________________________________________________
@@ -278,11 +278,41 @@ def submit_dask_workers(schedd, n_workers=1):
     return submitted_ads
 
 
+def poll_worker(schedd, worker_ad):
+    cluster_id, proc_id = worker_ad['JobId'].split('.')
+    polled_ads = schedd.xquery(
+        requirements = 'ClusterId == {} && ProcId == {}'.format(cluster_id, proc_id),
+        projection = ['ClusterId', 'ProcId', 'JobStatus', 'Iwd', 'Owner']
+        )
+    return list(polled_ads)
+
+def wait_for_job_to_run(schedd, worker_ad):
+    from time import sleep
+    while True:
+        polled_ads = poll_worker(schedd, worker_ad)
+        if len(polled_ads) == 0:
+            logger.error('No queued job found for worker_ad %s', worker_ad)
+            break
+        polled_ad = polled_ads[0]
+        jobstatus = polled_ad['JobStatus']
+
+        if jobstatus == 2: # Running
+            logger.info('Job is running', jobstatus)
+            break
+        else:
+            logger.info('Job status is %s; sleeping', jobstatus)
+            sleep(3)
+
+
 def main():
     schedd = get_best_schedd()
     logger.info('Selected schedd: %s', schedd)
 
-    submit_dask_workers(schedd)
+    worker_ad = submit_dask_workers(schedd)[0]
+
+    wait_for_job_to_run(schedd, worker_ad)
+
+
 
 if __name__ == '__main__':
     main()
